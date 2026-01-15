@@ -2,54 +2,91 @@ import requests
 
 
 def fetch_all_products():
+    """
+    Fetches all products from DummyJSON API
+    """
     try:
-        r = requests.get("https://dummyjson.com/products?limit=100", timeout=10)
-        r.raise_for_status()
-        data = r.json().get('products', [])
-        print(f"Fetched {len(data)} products from API")
-        return data
+        response = requests.get("https://dummyjson.com/products?limit=100", timeout=10)
+        response.raise_for_status()
+        products = response.json().get("products", [])
+        print(f"✓ Fetched {len(products)} products from API")
+        return products
     except Exception as e:
-        print("API error:", e)
+        print("✗ API fetch failed:", e)
         return []
 
 
-def create_product_mapping(products):
+def create_product_mapping(api_products):
+    """
+    Creates mapping of product ID to product info
+    """
     return {
-        p['id']: {
-            'category': p.get('category'),
-            'brand': p.get('brand'),
-            'rating': p.get('rating')
+        product["id"]: {
+            "category": product.get("category"),
+            "brand": product.get("brand"),
+            "rating": product.get("rating"),
         }
-        for p in products
+        for product in api_products
     }
 
 
-def enrich_sales_data(transactions, mapping):
-    enriched = []
+def enrich_sales_data(transactions, product_mapping):
+    """
+    Enriches transactions with API product data
+    """
+    enriched_transactions = []
 
     for tx in transactions:
         tx_copy = tx.copy()
         try:
-            pid = int(''.join(filter(str.isdigit, tx['ProductID'])))
-            if pid in mapping:
+            numeric_id = int("".join(filter(str.isdigit, tx["ProductID"])))
+            if numeric_id in product_mapping:
+                api_data = product_mapping[numeric_id]
                 tx_copy.update({
-                    'API_Category': mapping[pid]['category'],
-                    'API_Brand': mapping[pid]['brand'],
-                    'API_Rating': mapping[pid]['rating'],
-                    'API_Match': True
+                    "API_Category": api_data["category"],
+                    "API_Brand": api_data["brand"],
+                    "API_Rating": api_data["rating"],
+                    "API_Match": True
                 })
             else:
-                tx_copy.update({'API_Category': None, 'API_Brand': None, 'API_Rating': None, 'API_Match': False})
-        except:
-            tx_copy.update({'API_Category': None, 'API_Brand': None, 'API_Rating': None, 'API_Match': False})
+                tx_copy.update({
+                    "API_Category": None,
+                    "API_Brand": None,
+                    "API_Rating": None,
+                    "API_Match": False
+                })
+        except Exception:
+            tx_copy.update({
+                "API_Category": None,
+                "API_Brand": None,
+                "API_Rating": None,
+                "API_Match": False
+            })
 
-        enriched.append(tx_copy)
+        enriched_transactions.append(tx_copy)
 
-    with open('data/enriched_sales_data.txt', 'w', encoding='utf-8') as f:
-        header = list(enriched[0].keys())
-        f.write('|'.join(header) + '\n')
-        for tx in enriched:
-            f.write('|'.join(str(tx.get(h, '')) for h in header) + '\n')
+    save_enriched_data(enriched_transactions)
+    return enriched_transactions
 
-    return enriched
 
+def save_enriched_data(enriched_transactions, filename="data/enriched_sales_data.txt"):
+    """
+    Saves enriched sales data to file
+    """
+    if not enriched_transactions:
+        print("No enriched data to save.")
+        return
+
+    headers = [
+        "TransactionID", "Date", "ProductID", "ProductName",
+        "Quantity", "UnitPrice", "CustomerID", "Region",
+        "API_Category", "API_Brand", "API_Rating", "API_Match"
+    ]
+
+    with open(filename, "w", encoding="utf-8") as file:
+        file.write("|".join(headers) + "\n")
+        for tx in enriched_transactions:
+            row = [str(tx.get(h, "")) if tx.get(h) is not None else "" for h in headers]
+            file.write("|".join(row) + "\n")
+
+    print(f"✓ Enriched data saved to {filename}")
